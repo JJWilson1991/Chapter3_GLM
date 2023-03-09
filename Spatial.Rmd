@@ -228,20 +228,20 @@ ttt<- as.data.frame(with(testing123,table(ID2)))
 
 SE_freq_19<-left_join(sepSE_sf, ttt, by="ID2")
 
-#add coords
-SE_centroid_split<-as_data_frame(SE_centroid_split)
-
-cent_SE_19<-left_join(sepSE_sf, SE_centroid_split)
-
-cent_spec_19<- left_join(cent_SE_19,CDV_Clean19 )
-
-#plot cases by species in SE
-SESpec<- ggplot(cent_spec_19) + geom_sf(aes(geometry=geom)) +  geom_point(data = cent_spec_19, aes(x = long, y = lat, color= Species), alpha = 0.5, size= 1,position = position_jitter(width=0.05,height=0.05 ), na.rm = T)+ theme_minimal()+ scale_colour_discrete( na.translate=F ) +labs(x="Longitude", y="Latitude")
-SESpec
-
-
-ggsave(here::here("results", "Figures_new", "SE_AllSpec.png"),plot = SESpec)
-
+# #add coords
+# SE_centroid_split<-as_data_frame(SE_centroid_split)
+# 
+# cent_SE_19<-left_join(sepSE_sf, SE_centroid_split)
+# 
+# cent_spec_19<- left_join(cent_SE_19,CDV_Clean19 )
+# 
+# #plot cases by species in SE
+# SESpec<- ggplot(cent_spec_19) + geom_sf(aes(geometry=geom)) +  geom_point(data = cent_spec_19, aes(x = long, y = lat, color= Species), alpha = 0.5, size= 1,position = position_jitter(width=0.05,height=0.05 ), na.rm = T)+ theme_minimal()+ scale_colour_discrete( na.translate=F ) +labs(x="Longitude", y="Latitude")
+# SESpec
+# 
+# 
+# ggsave(here::here("results", "Figures_new", "SE_AllSpec.png"),plot = SESpec)
+# 
 
 
 ```
@@ -253,7 +253,26 @@ ggsave(here::here("results", "Figures_new", "SE_AllSpec.png"),plot = SESpec)
 
 state_spec_new<-state_outline+geom_point(data=CDV_new, aes(x=long, y=lat,color=Species) )
 
+state_spec_new
+
 ggsave(here::here("results","state_spec_new.png"),plot=state_spec_new)
+
+#repeat with colour for pos neg
+
+state_dist_new<-state_outline+geom_point(data=CDV_new, aes(x=long, y=lat,color=Distemper) )
+
+state_dist_new
+
+ggsave(here::here("results","state_dist_new.png"),plot=state_dist_new)
+
+
+#both
+
+state_specdist_new<-state_outline+geom_point(data=CDV_new, aes(x=long, y=lat,color=Species, shape=Distemper) )
+
+state_specdist_new
+
+ggsave(here::here("results","state_specdist_new.png"),plot=state_specdist_new)
 
 ```
 

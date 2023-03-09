@@ -722,7 +722,104 @@ ggplot(test_results, aes(x = Distemper, y = predicted_class)) +
 
 ```
 
+```{r}
+library(tree)
 
+mytreeD<-tree(logit, data = data_train, split = "deviance", mincut = 10, minsize = 30, maxdepth = 3, mincriterion = 0.95)
+
+mytree <- tree(y ~ x1 + x2 + group, data = mydata, split = "deviance", mincut = 10, minsize = 30, maxdepth = 3, mindev = 0.001, mincriterion = 0.95)
+
+
+droptest<-dropterm(logit_update5)
+droptest<-arrange(droptest, AIC)
+
+
+dropearly<-dropterm(logit)
+dropearly<-arrange(dropearly, AIC)
+
+
+```
+```{r}
+library(rpart)
+mytreedecision <- rpart(logit, data = data_train, method = "class", control = rpart.control(cp = 0.001))
+
+plot(mytreedecision)
+text(mytreedecision)
+
+library(ggparty)
+library(rpart.plot)
+treeparty<-partykit::ctree(formula=Distemper ~ Species + Age + month + lat + knn.dist + 
+    Elevation + Precipitation + Temperature + Imperviousness + 
+    description 
+, data = data_train)
+
+ggparty::gg_tree(treeparty)
+
+
+prp(mytreedecision)
+```
+```{r}
+
+# Fit a logistic regression model
+#model <- glm(y ~ x1 + x2 + x3, data = mydata, family = "binomial")
+
+# Fit a logistic regression model
+#model <- glm(y ~ x1 + x2 + x3, data = mydata, family = "binomial")
+
+# Extract the coefficients
+coef <- coef(logit_update5)
+
+# Calculate the log odds ratios and corresponding confidence intervals
+logodds <- exp(coef)
+logoddsCI <- exp(confint.default(logit_update5))
+
+# Create a results data frame
+results <- data.frame(coef, logodds, logoddsCI)
+
+# Print the results
+print(results)
+
+
+```
+```{r}
+# Load the rsq package
+library(rsq)
+library(arm)
+# Fit a GLM model
+#model <- glm(y ~ x1 + x2 + x3, data = mydata, family = "binomial")
+
+# Calculate standardized coefficients using the rsq package
+std_coef <- standardized(logit_update5)
+
+# Print the standardized coefficients
+print(std_coef)
+
+
+# Fit a GLM model
+#model <- glm(y ~ x1 + x2 + x3, data = mydata, family = "binomial")
+
+# Calculate standardized coefficients manually
+coef_std <- coef(logit_update5) / (summary(logit_update5)$dispersion * summary(logit_update5)$coefficients[, "Std. Error"])
+
+# Print the standardized coefficients
+print(coef_std)
+
+
+# Create a dataframe with the standardized coefficients
+df_coef_std <- data.frame(var = names(coef_std), std_coef = coef_std)
+
+# Order the dataframe by the absolute size of the standardized coefficients
+df_coef_std_ordered <- df_coef_std %>% arrange(desc(abs(std_coef)))
+```
+
+```{r}
+
+logit_update5
+droplate<-dropterm(logit_update5)
+droplate<-arrange(droplate, AIC)
+
+
+```
 
 
 <!-- ```{r raccoons} -->
