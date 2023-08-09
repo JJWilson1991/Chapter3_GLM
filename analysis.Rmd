@@ -810,6 +810,23 @@ df_coef_std <- data.frame(var = names(coef_std), std_coef = coef_std)
 
 # Order the dataframe by the absolute size of the standardized coefficients
 df_coef_std_ordered <- df_coef_std %>% arrange(desc(abs(std_coef)))
+
+
+#add to main table 
+
+pop3
+df_coef_std
+
+colnames(pop3)[1]<-"var"
+
+
+full_results_df<-left_join(pop3,df_coef_std)
+
+full_results_df_ordered <- full_results_df %>% arrange(desc(abs(std_coef)))
+
+
+write.csv(full_results_df_ordered, file = "glm_fit_std_coef.csv")
+
 ```
 
 ```{r}
@@ -817,6 +834,73 @@ df_coef_std_ordered <- df_coef_std %>% arrange(desc(abs(std_coef)))
 logit_update5
 droplate<-dropterm(logit_update5)
 droplate<-arrange(droplate, AIC)
+
+
+```
+```{r}
+# Fit a GLM model
+#myglm <- glm(response ~ predictor1 + predictor2, data=mydata, family=binomial)
+
+# Extract coefficient estimates and standard errors
+coef_est <- coef(logit_update5)
+coef_se <- summary(logit_update5)$coef[,2]
+
+# Calculate odds ratios and confidence intervals
+odds_ratios <- exp(coef_est)
+conf_int_low <- exp(coef_est - 1.96*coef_se)
+conf_int_high <- exp(coef_est + 1.96*coef_se)
+
+# # Create a bar plot with error bars
+# plot(odds_ratios, ylab="Odds Ratio", xlab="Predictor", ylim=c(0, max(odds_ratios)*1.2), 
+#      main="Odds Ratio Plot")
+# arrows(x0=1:length(odds_ratios), y0=conf_int_low, y1=conf_int_high, 
+#        angle=90, code=3, length=0.05, col="blue")
+# axis(side=1, at=1:length(odds_ratios), labels=names(odds_ratios), las=2)
+
+
+# Create a data frame for plotting
+plot_data <- data.frame(predictor=names(odds_ratios),
+                        odds_ratio=odds_ratios,
+                        conf_int_low=conf_int_low,
+                        conf_int_high=conf_int_high)
+
+# Create a plot with error bars
+ggplot(plot_data, aes(x=predictor, y=odds_ratio)) +
+  geom_bar(stat="identity", fill="lightblue", alpha=0.5) +
+  geom_errorbar(aes(ymin=conf_int_low, ymax=conf_int_high), 
+                width=0.2, size=1, color="blue") +
+  labs(x="Predictor", y="Odds Ratio", 
+       title="Odds Ratio Plot") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle=90, vjust=0.5, hjust=1))
+```
+
+```{r}
+# Load the necessary libraries
+library(ggplot2)
+library(dplyr)
+
+# Fit the GLM model and store the results
+#model <- glm(formula = formula, family = binomial(link = "logit"), data = data)
+resultsOR <- broom::tidy(logit_update5)
+
+# Calculate the odds ratios and confidence intervals
+resultsOR <- resultsOR %>%
+  mutate(odds_ratio = exp(estimate)) %>%
+  mutate(lower_ci = exp(estimate - 1.96 * std.error),
+         upper_ci = exp(estimate + 1.96 * std.error))
+
+# Create a ggplot2 object for the odds ratios
+plot <- ggplot(resultsOR, aes(x = term, y = odds_ratio, ymin = lower_ci, ymax = upper_ci)) +
+  geom_pointrange(color = "steelblue", size = 1.5, alpha = 0.8) +
+  coord_flip() +
+  labs(x = "", y = "Odds Ratio", title = "Odds Ratio Plot") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# Display the plot
+plot
+
 
 
 ```

@@ -259,7 +259,10 @@ ggsave(here::here("results","state_spec_new.png"),plot=state_spec_new)
 
 #repeat with colour for pos neg
 
-state_dist_new<-state_outline+geom_point(data=CDV_new, aes(x=long, y=lat,color=Distemper) )
+# The colour blind friendly palette with grey:
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+state_dist_new<-state_outline+geom_point(data=CDV_new, aes(x=long, y=lat,color=Distemper) )+ scale_colour_manual(values=cbPalette)
 
 state_dist_new
 
