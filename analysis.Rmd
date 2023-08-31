@@ -29,13 +29,6 @@ SCWDS_with_eco_fil1<-SCWDS_with_eco%>%dplyr::filter(!is.na(description))
 
 ```
 
-```{r create report}
-#create_report(SCWDS_with_eco_fil1)
-
-
-
-```
-
 ```{r}
 #recode distemper as 1/0
 SCWDS_with_eco_fil1$Distemper<-ifelse(SCWDS_with_eco_fil1$Distemper=="Y",1,0)
@@ -374,26 +367,7 @@ pop3<-pop3[,c(1,2,6,7,3,4,5)]
 
 pop3<-arrange(pop3, `Pr(>|z|)`)
 
-#library(xtable)
 
-# Convert the data frame to a table
-#pop2_table <- xtable(pop2)
-
-# Print the table to the console
-#print(pop2_table, type = "html")
-
-#library(knitr)
-#kable(pop2, format = "html")
-
-
-
-#library(stargazer)
-
-# Create a data frame
-#data <- data.frame(x = c(1, 2, 3), y = c(4, 5, 6))
-
-# Use stargazer to create a LaTeX table
-#stargazer(pop2, type = "latex")
 
 write.csv(pop3, file = "glm_fit.csv")
 
@@ -419,10 +393,6 @@ n2 <- length(logit_update2$residuals)
 
 # Calculate the AICc
 AICc2 <- AIC(logit_update2) + (2 * df2 / (n2 - df2 - 1))
-
-# Calculate the AICc for each model
-#AICc1 <- AIC(fit1) + 2 * (nrow(coef(fit1)))^2 / (n - nrow(coef(fit1)) - 1)
-#AICc2 <- AIC(fit2) + 2 * (nrow(coef(fit2)))^2 / (n - nrow(coef(fit2)) - 1)
 
 # Calculate the delta AICc
 deltaAICc <- AICc2 - AICc1
@@ -520,20 +490,6 @@ accuracy_Test_new <- sum(diag(table_mat_new)) / sum(table_mat_new)
 accuracy_Test_new
 
 
-#precision <- function(matrix) {
-	# True positive
- #   tp <- matrix[2, 2]
-	# false positive
-  #  fp <- matrix[1, 2]
-  # return (tp / (tp + fp))
-#}
-
-#recall <- function(matrix) {
-# true positive
- #   tp <- matrix[2, 2]# false positive
-  #  fn <- matrix[2, 1]
-   # return (tp / (tp + fn))
-#}
 
 prec_new <- precision(table_mat_new)
 prec_new
@@ -551,53 +507,8 @@ f1_new
 
 
 ```{r}
-# slim_DF<-SCWDS_with_eco_fil2[,c(2,4,5,8,10,13,15,16)]
-# 
-# 
-# drop1.test <- drop1(logit, test="Chisq")
-# drop1.test[rev(order(drop1.test$`Pr(>Chi)`)),]
-# 
-
 # Compare the base model and the improved model using a chi-squared test
 dropterm(logit_update2)
-# 
-# set.seed(1234)
-# 
-# data_train2 <- create_train_test(slim_DF, 0.8, train = TRUE)
-# data_test2 <- create_train_test(slim_DF, 0.8, train = FALSE)
-# dim(data_train2)
-# 
-# 
-# formula <- Distemper~.
-# logit2 <- glm(formula, data = data_train2, family = 'binomial')
-# summary(logit2)
-# 
-# 
-# 
-# drop2<-dropterm(logit2)
-# drop2<-arrange(drop2, AIC)
-# 
-# 
-# 
-# 
-# slim_DF2<-SCWDS_with_eco_fil2[,c(2,5,8,9,10,13,16)]
-# 
-# set.seed(12345)
-# 
-# data_train3 <- create_train_test(slim_DF2, 0.8, train = TRUE)
-# data_test3 <- create_train_test(slim_DF2, 0.8, train = FALSE)
-# dim(data_train3)
-# 
-# 
-# formula <- Distemper~.
-# logit3 <- glm(formula, data = data_train3, family = 'binomial')
-# summary(logit3)
-# 
-# 
-# 
-# drop3<-dropterm(logit3)
-# drop3<-arrange(drop3, AIC)
-
 
 
 
@@ -644,14 +555,6 @@ ggplot(data.frame(fitted_values, residuals), aes(x = fitted_values, y = residual
 ###test for overfitting
 
 
-# Load library
-
-
-# Split the data into a training set and a test set
-# set.seed(123)
-# split_index <- createDataPartition(data$y, p = 0.8, list = FALSE)
-# train_data <- data[split_index, ]
-# test_data <- data[-split_index, ]
 
 # Fit the model on the training set
 model_OF <- glm(logit_update2, data = data_train, family = "binomial")
@@ -723,12 +626,6 @@ ggplot(test_results, aes(x = Distemper, y = predicted_class)) +
 ```
 
 ```{r}
-library(tree)
-
-mytreeD<-tree(logit, data = data_train, split = "deviance", mincut = 10, minsize = 30, maxdepth = 3, mincriterion = 0.95)
-
-mytree <- tree(y ~ x1 + x2 + group, data = mydata, split = "deviance", mincut = 10, minsize = 30, maxdepth = 3, mindev = 0.001, mincriterion = 0.95)
-
 
 droptest<-dropterm(logit_update5)
 droptest<-arrange(droptest, AIC)
@@ -738,25 +635,6 @@ dropearly<-dropterm(logit)
 dropearly<-arrange(dropearly, AIC)
 
 
-```
-```{r}
-library(rpart)
-mytreedecision <- rpart(logit, data = data_train, method = "class", control = rpart.control(cp = 0.001))
-
-plot(mytreedecision)
-text(mytreedecision)
-
-library(ggparty)
-library(rpart.plot)
-treeparty<-partykit::ctree(formula=Distemper ~ Species + Age + month + lat + knn.dist + 
-    Elevation + Precipitation + Temperature + Imperviousness + 
-    description 
-, data = data_train)
-
-ggparty::gg_tree(treeparty)
-
-
-prp(mytreedecision)
 ```
 ```{r}
 
@@ -904,78 +782,3 @@ plot
 
 
 ```
-
-
-<!-- ```{r raccoons} -->
-<!-- SCWDS_rac<-SCWDS_rac[sample(1:nrow(SCWDS_rac)), ] -->
-<!-- SCWDS_rac<-SCWDS_rac[,-2] -->
-<!-- set.seed(1234) -->
-
-<!-- data_trainr <- create_train_test(SCWDS_rac, 0.8, train = TRUE) -->
-<!-- data_testr <- create_train_test(SCWDS_rac, 0.8, train = FALSE) -->
-<!-- dim(data_trainr) -->
-
-
-<!-- formula <- Distemper~. -->
-<!-- logitr <- glm(formula, data = data_trainr, family = 'binomial') -->
-<!-- summary(logitr) -->
-
-<!-- dropr<-dropterm(logitr) -->
-<!-- dropr<-arrange(dropr, AIC) -->
-
-
-
-<!-- ``` -->
-
-<!-- ```{r} -->
-<!-- # box plot rac temp -->
-<!-- SCWDS_rac$Distemper%<>%as.factor() -->
-
-
-<!-- ggplot(SCWDS_rac, aes(x = Distemper, y = Temperature)) + -->
-<!--     geom_boxplot() + -->
-<!--     stat_summary(fun = mean, -->
-<!--         geom = "point", -->
-<!--         size = 3, -->
-<!--         color = "steelblue") + -->
-<!--     theme_classic()+scale_y_log10()+geom_signif(comparisons = list(c("0", "1")),  -->
-<!--               map_signif_level=TRUE) -->
-
-
-<!-- ``` -->
-
-<!-- ```{r} -->
-<!-- #run some chisq tests -->
-<!-- #month -->
-<!-- chisq.test(SCWDS_with_eco_fil1$month,SCWDS_with_eco_fil1$Distemper, correct=FALSE) -->
-
-<!-- #age -->
-<!-- chisq.test(SCWDS_with_eco_fil1$Age,SCWDS_with_eco_fil1$Distemper, correct=FALSE) -->
-<!-- #descriptoion -->
-<!-- chisq.test(SCWDS_with_eco_fil1$description,SCWDS_with_eco_fil1$Distemper, correct=FALSE) -->
-<!-- #species #sig -->
-<!-- chisq.test(SCWDS_with_eco_fil1$Species,SCWDS_with_eco_fil1$Distemper, correct=FALSE) -->
-<!-- #class -->
-<!-- chisq.test(SCWDS_with_eco_fil1$class,SCWDS_with_eco_fil1$Distemper, correct=FALSE) -->
-<!-- #sex -->
-<!-- chisq.test(SCWDS_with_eco_fil1$Sex,SCWDS_with_eco_fil1$Distemper, correct=FALSE) -->
-<!-- #state #sig -->
-<!-- chisq.test(SCWDS_with_eco_fil1$State,SCWDS_with_eco_fil1$Distemper, correct=FALSE) -->
-<!-- ``` -->
-
-
-<!-- ```{r} -->
-
-<!-- # Start with the full model -->
-<!-- #base_model <- glm(y ~ x1 + x2 + x3 + x4, data = data, family = binomial) -->
-
-<!-- # Perform backward stepwise selection -->
-<!-- model_step <- step(logit, direction = "backward") -->
-
-<!-- # Print the summary of the final model -->
-<!-- summary(model_step) -->
-
-
-
-
-<!-- ``` -->

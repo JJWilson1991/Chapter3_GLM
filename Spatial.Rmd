@@ -82,78 +82,6 @@ library(viridis)
 
 library(rgeos)
 
-#we also want some state abbreviations we can put in the centre of our states on the map so we shall pull that data together
-# statescent <- data.frame(state.center, state.abb)
-# SECEnt <- subset(statescent, state.abb %in% c("PA","GA", "KS", "SC", "AR", "FL", "KY", "LA", "MD", "MS", "NC", "TN", "VA", "WV", "AL", "MO", "NE"))
-```
-```{r}
-#we also want some major cites that we can plot on our final map
-# us <- map_data("state")
-# uscitiesdf <- as.data.frame(us.cities)
-# Bigcities <- uscitiesdf %>% filter(pop >2000000)
-```
-```{r}
-# library(ggrepel)
-# #now we'll pull all these layers togetehr in ggplot
-# SEC1 <- ggplot(data = dftr19) + 
-#   geom_polygon(data = us, aes(x = long, y = lat, group = group), color ="gray50", fill = "white") + 
-#   geom_polygon(aes(x = long, y = lat, fill = Freq, group = group), color = "gray50") + 
-#   coord_fixed(1.3) + 
-#   scale_fill_gradient(low = "seashell1", high = "dodgerblue4", na.value = "white", trans = "log10") 
-# 
-# SEC2 <- SEC1 + theme( 
-#   axis.text = element_blank(),
-#   axis.line = element_blank(),
-#   axis.ticks = element_blank(),
-#   panel.border = element_blank(),
-#   panel.grid = element_blank(),
-#   axis.title = element_blank(), legend.position = "right")
-# 
-# SEC3 <- SEC2 +  
-#   geom_text(data = SECEnt, aes(x = x, y = y, label = state.abb, group = NULL, size = )) + labs(fill= "Number of cases")
-# 
-# SEC4 <- SEC3
-# #+   geom_point(data = Bigcities, aes(x = long, y = lat), alpha = 0.5) +
-#   #geom_label_repel(data = Bigcities, aes(x = long, y = lat, label = name, group = NULL))
-# 
-# SEC4
-# 
-# ggsave(here::here("results", "Figures_new", "Cases_per_State19.png"),plot = SEC4)
-# 
-# statetable<- table(CDV_Clean19$State)
-# statetable<-as.data.frame(statetable)
-# statetable
-#   colnames(statetable)[1] <- "State"
-#   colnames(statetable)[2] <- "No. of cases"
-#   
-# statetable %>% saveRDS(here::here("results", "Tables", "statetable19.rds"))
-# #we also needed to recode the carolinas to capiatlise both words so we could properly join 
-# #i used a log scale here as GA is massively overrrepresented and it made it difficult to percive what other states are involved
-```
-```{r}
-#now lets look at the state maps per year using facet wrap
-# StperYr19 <- with(CDV_Clean19, table(State, CollectionYear))
-# SPYdf19 <- as.data.frame(StperYr19)
-# spyrsttt19 <- left_join(SECC19, SPYdf19)
-# SECt119 <- ggplot(data = spyrsttt19) + geom_polygon(data = us, aes(x = long, y = lat, group = group), color ="gray50", fill = "gray70") + geom_polygon(aes(x = long, y = lat, fill = Freq, group = group), color = "gray50") + coord_fixed(1.3) +  scale_fill_gradient(low = "white", high = "slateblue4", na.value = "white", trans = "log10") 
-# 
-# SECt219 <- SECt119 + theme( 
-#   axis.text = element_blank(),
-#   axis.line = element_blank(),
-#   axis.ticks = element_blank(),
-#   panel.border = element_blank(),
-#   panel.grid = element_blank(),
-#   axis.title = element_blank(), legend.position = "right")
-# 
-# SECt319 <- SECt219 + labs(fill= "Number of cases")
-# 
-# 
-# SECT419 <- SECt319 + facet_wrap(~ CollectionYear)
-# 
-# SECT419
-# 
-# ggsave(here::here("results", "Figures_new", "Cases_per_State_WrapYear19.png"),plot = SECT419)
-
 ```
 
 
@@ -183,32 +111,6 @@ sepSE_sf$County<- capFirst(sepSE_sf$County)
 sepSE_sf$State<- capFirst(sepSE_sf$State)
 sepSE_sf<-sepSE_sf%>% mutate(State = recode(State, "North carolina" = "North Carolina", "South carolina" = "South Carolina", "West virginia"= "West Virginia"))%>% mutate(County=recode(County, "De kalb"="DeKalb", "Jeff davis"="Jeff Davis","Ben hill"= "Ben Hill", "Mcintosh"="McIntosh", "Mcduffie"="McDuffie"))
  
-# #calculate the centroids for each county
-# 
-# SE_centroid <- st_centroid(sepSE_sf)
-# 
-# #split in to seprate long and lat coordinates
-# 
-# 
-# SEtest4 <-  SE_centroid%>% mutate(tosplit= as.character(geom))
-# 
-# SEtest4$tosplit <- sub(SEtest4$tosplit, pattern = "c", replacement = "")
-# 
-# SEtest4$tosplit <- sub(SEtest4$tosplit, pattern = "[(]", replacement = "")
-# 
-# SEtest4$tosplit <- sub(SEtest4$tosplit, pattern = "[)]", replacement = "")
-# 
-# SEtest4$tosplit<- sub(SEtest4$tosplit, pattern = "[,]", replacement = "")
-# 
-# SEtest5 <- SEtest4 %>% separate(tosplit, c("long", "lat"), " ")
-# 
-# SE_centroid_split<- SEtest5 %>% mutate(lat = as.numeric(as.character(lat))) %>% mutate(long = as.numeric(as.character(long)))
-# 
-# colnames(SE_centroid_split)[6]<- "Centroid"
-# 
-# SE_centroid_split %>% saveRDS(here::here("data", "processed_data", "SE_centroid.rds"))
-# 
-# plot(sepSE_sf["State"])
 ```
 
 ```{r}
@@ -227,22 +129,6 @@ ggplot(testing12345)+geom_sf( aes(geometry=geom))+ geom_point(aes(x=long, y=lat,
 ttt<- as.data.frame(with(testing123,table(ID2)))
 
 SE_freq_19<-left_join(sepSE_sf, ttt, by="ID2")
-
-# #add coords
-# SE_centroid_split<-as_data_frame(SE_centroid_split)
-# 
-# cent_SE_19<-left_join(sepSE_sf, SE_centroid_split)
-# 
-# cent_spec_19<- left_join(cent_SE_19,CDV_Clean19 )
-# 
-# #plot cases by species in SE
-# SESpec<- ggplot(cent_spec_19) + geom_sf(aes(geometry=geom)) +  geom_point(data = cent_spec_19, aes(x = long, y = lat, color= Species), alpha = 0.5, size= 1,position = position_jitter(width=0.05,height=0.05 ), na.rm = T)+ theme_minimal()+ scale_colour_discrete( na.translate=F ) +labs(x="Longitude", y="Latitude")
-# SESpec
-# 
-# 
-# ggsave(here::here("results", "Figures_new", "SE_AllSpec.png"),plot = SESpec)
-# 
-
 
 ```
 
