@@ -12,3 +12,4 @@ Raw Data is located in the raw_data subfolder, within the data folder. This cont
 
 Sequentially run the files; “data_collection” -> ”analysis” -> ”Spatial”   These will reproduce the analyses conducted in the project and save the various results figures.
 
+Note: The raw raster files from NLCD are not included in the repo due to large size
