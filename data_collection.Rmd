@@ -1,0 +1,1642 @@
+---
+title: "Untitled"
+author: "JJW"
+date: "2022-11-18"
+output: html_document
+---
+
+```{r load packages}
+library(FedData)
+library(rasterVis)
+library(raster)
+library(sp)
+library(rgdal)
+library(reshape2)
+library(treemapify)
+library(ggplot2)
+library(kableExtra)
+library(animation)
+library(scales)
+library(magrittr)
+library(tidyverse)
+library(here)
+library(visdat)
+library(lubridate)
+library(prism)
+library(terra)
+library(tools)
+library(elevatr)
+library(tigris)
+library(rgeos)
+library(sf)
+library(nabor)
+```
+
+```{r import data}
+#import raw case data
+Raw_CDV_All2<- read_csv(here("data", "raw_data", "SCWDS_mesoCLEANED.csv"))
+Raw_CDV_All2<-Raw_CDV_All2[c(1:275),]
+vis_miss(Raw_CDV_All2)
+
+#lets cut the irrelevant columns
+
+filter1_CDV_All2<-Raw_CDV_All2[,c(3,4,5,6,8,10,12,13,17,18)]
+
+```
+```{r add months}
+#convert date with lubridate and add individual d/m.y columns
+filter1_CDV_All2$`Date Rec.`%<>%mdy()
+filter1_CDV_All2<-filter1_CDV_All2 %>%
+  dplyr::mutate(year = lubridate::year(`Date Rec.`), 
+                month = lubridate::month(`Date Rec.`), 
+                day = lubridate::day(`Date Rec.`))
+
+filter1_CDV_All2<-filter1_CDV_All2 %>%
+  mutate(year_month = floor_date(`Date Rec.`, "month"))
+```
+```{r split coords}
+#split coords into lat and long columns
+split_co <-  filter1_CDV_All2%>% mutate(tosplit= as.character(Coordinates))
+split_co2 <- split_co %>% separate(tosplit, c("lat", "long"), ",")
+filter2_CDV_All2<- split_co2 %>% mutate(lat = as.numeric(as.character(lat))) %>% mutate(long = as.numeric(as.character(long)))
+```
+```{r}
+#knn all check
+#code to extract data frame of lat/long points of cases for spdf
+coordsall2 <- as.data.frame(structure(list(latitude = filter2_CDV_All2$lat, longitude = filter2_CDV_All2$long)))
+#convert to spdf
+SPDFall2 <- SpatialPointsDataFrame(c(coordsall2[,c('longitude','latitude')]), data = coordsall2)
+#projection as North america
+#proj4string(SPDF1) <- CRS("+init=epsg:4326")
+NAD83<-"+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs"
+proj4string(SPDFall2) <- CRS("+init=epsg:4326")
+epsg9311 <- CRS("+init=epsg:9311")
+SPDFall2<-spTransform(SPDFall2,epsg9311)
+#check bbox
+sf::st_bbox(SPDFall2)
+#plot(SPDF1)
+
+
+#make DF of positve cases
+pos_cases<-dplyr::filter(filter2_CDV_All2, Distemper=="Y")
+
+
+#knn all check
+#code to extract data frame of lat/long points of cases for spdf
+poscoords <- as.data.frame(structure(list(latitude = pos_cases$lat, longitude = pos_cases$long)))
+#convert to spdf
+SPDFpos <- SpatialPointsDataFrame(c(poscoords[,c('longitude','latitude')]), data = poscoords)
+#projection as North america
+#proj4string(SPDF1) <- CRS("+init=epsg:4326")
+NAD83<-"+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs"
+proj4string(SPDFpos) <- CRS("+init=epsg:4326")
+epsg9311 <- CRS("+init=epsg:9311")
+SPDFpos<-spTransform(SPDFpos,epsg9311)
+#check bbox
+sf::st_bbox(SPDFpos)
+#plot(SPDF1)
+
+
+
+```
+```{r}
+#get distance from all coords to a CDV case (put positive DF first)
+#do nearest neighbour in meters and join back to DF
+Allknn2 <- knn( coordinates(SPDFpos), coordinates(SPDFall2), k=2)
+  ( Allknn2 <- data.frame( knn=Allknn2[[1]][,2], knn.dist=Allknn2[[2]][,2] ) )
+
+filter2_CDV_All2<-cbind(filter2_CDV_All2,Allknn2)
+
+
+```
+
+```{r elevation}
+#get elevation data 
+#add to SPDF
+spdf_elev_epqsall2 <- get_elev_point(SPDFall2, src = "epqs")
+elevation_dfall2<-data.frame(spdf_elev_epqsall2$elevation)
+#add to original DF
+filter2_CDV_All2<-cbind(filter2_CDV_All2, elevation_dfall2)
+
+```
+
+```{r}
+#get prism rainfall 2019
+#get prism rainfall 2019
+prism_set_dl_dir(here("prism"))
+get_prism_annual(type = "ppt", years = 2019)
+prism_ppt19<-raster("prism/PRISM_ppt_stable_4kmM3_2019_bil/PRISM_ppt_stable_4kmM3_2019_bil.bil")
+#extarct and add to DF
+allppt_df2<-data.frame(raster::extract(prism_ppt19, SPDFall2))
+filter2_CDV_All2<-cbind(filter2_CDV_All2,allppt_df2)
+```
+```{r}
+#repeat for prism temp
+get_prism_annual(type = "tmean", years = 2019)
+prism_tm19<-raster("prism/PRISM_tmean_stable_4kmM3_2019_bil/PRISM_tmean_stable_4kmM3_2019_bil.bil")
+#extract temp from prism and join
+alltm_df2<-data.frame(raster::extract(prism_tm19, SPDFall2))
+filter2_CDV_All2<-cbind(filter2_CDV_All2,alltm_df2)
+```
+
+```{r}
+#nest by state
+
+nested_df2<-filter2_CDV_All2 %>% 
+  group_by(State) %>% 
+  nest()
+
+nested_df2%<>%arrange(State)
+```
+
+```{r}
+#load rasters for LC and IP
+rastlist = list.files(pattern="*.tiff")
+
+rastlist
+NLCDfiles = setNames(lapply(rastlist, terra::rast),file_path_sans_ext(basename(rastlist)))
+
+
+plot(NLCDfiles[[1]])
+```
+
+```{r}
+
+list2stack <- function(x) {
+  z<-list.files(pattern = x)
+  y<-raster::stack(z)
+  return(y)
+}
+
+
+# Load in the NLCD legend, colors and descriptions from package FedData. 
+
+legend<-pal_nlcd()
+legend
+
+```
+
+###ARKANSAS
+
+```{r individual states}
+#ARK_LA
+NLCD1<-list2stack("^NLCD_2019_AR_LA.tiff$")
+#plot(NLCD1)
+# First, we need to recognize it as a categorical raster using ratify(): 
+NLCD1_rat<-ratify(NLCD1[[1]]) 
+```
+
+
+```{r extract coords for spdf}
+#code to extract data frame of lat/long points of cases for spdf
+coords1 <- as.data.frame(structure(list(latitude = nested_df2[[2]][[1]]$lat, longitude = nested_df2[[2]][[1]]$long)))
+#convert to spdf
+SPDF1 <- SpatialPointsDataFrame(c(coords1[,c('longitude','latitude')]), data = coords1)
+#projection as North america
+#proj4string(SPDF1) <- CRS("+init=epsg:4326")
+#NAD83<-"+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs"
+proj4string(SPDF1) <-  CRS("+init=epsg:4326")
+#SPDF1<-spTransform(SPDF1,NAD83)
+#check bbox
+#sf::st_bbox(SPDF1)
+#plot(SPDF1)
+
+target_crs = CRS("+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")  # This is your string assigned to an object
+
+SPDF1= spTransform(SPDF1, target_crs) ## object used to transform your data frame
+
+sf::st_bbox(SPDF1)
+# xmin     ymin     xmax     ymax 
+# -1127246  1661667 -1018854  1679942 
+
+#plot(d4)
+```
+
+
+```{r extract land cover using coords}
+#extract landcover from points on spdf, will automatically reporject spdf to match raster
+extractLC1<-data.frame(raster::extract(NLCD1_rat,SPDF1))
+#rename column as code
+colnames(extractLC1)[1]<-"code"
+#convert to character so can join
+extractLC1$code%<>%as.character()
+#add legend description for each code
+extractLC1<-left_join(extractLC1,legend)
+#need to add back to original DF
+nested_df2[[2]][[1]]<-  cbind(nested_df2[[2]][[1]],extractLC1)
+```
+
+```{r}
+#get distance to water
+#get county fips codes for NC
+data(fips_codes)
+#extarct fips codes for State of choice, water features are stored by county
+fipsAR<-dplyr::filter(fips_codes, state_code=="05")
+#list all fips codes for all NC counties
+AR_county<-fipsAR$county_code
+#get hydrological features for all NC counties
+ARwater<-area_water("AR",AR_county)
+#plot(ARwater$geometry)
+#extract geometry of water features
+ARwatergeo<-ARwater$geometry
+#convert to SF then SP
+ARwater_SF<-st_sf(ARwatergeo)
+ARwater_SP<-as(Class = "Spatial",ARwater_SF)
+# #distance to water in degrees
+# dist_2_water<-data.frame(apply(gDistance(d3, NCwater_SP,byid=TRUE),2,min))
+# #projections
+# wgs<-"+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
+# wgs84<-CRS(wgs)
+# #projection for NC in survey ft
+# epsg2264 <- CRS("+init=epsg:2264")
+#use 9311 for whole US, in metres
+epsg9311 <- CRS("+init=epsg:9311")
+
+#proj4string(SPDF1) <- CRS("+init=epsg:4326")
+#trnasform projections so both the same 
+SPDF_water_proj <- spTransform(SPDF1,epsg9311)
+ARwater_proj   <- spTransform(ARwater_SP, epsg9311)
+#distance in metres
+AR_water_m<-data.frame(apply(gDistance(SPDF_water_proj, ARwater_proj,byid=TRUE),2,min))
+# 
+# #NC projection
+# CDV.proj2 <- spTransform(d3,epsg2264)
+# water.proj2   <- spTransform(NCwater_SP, epsg2264)
+# #in feet
+# d2w_feet<-data.frame(apply(gDistance(CDV.proj2, water.proj2,byid=TRUE),2,min))
+# 
+
+nested_df2[[2]][[1]]<-cbind(nested_df2[[2]][[1]], AR_water_m)
+
+```
+
+
+```{r}
+#numbers for impervious surface are a percentage, with 100 being totally impervious
+plot(NLCDfiles[[12]])
+imp1<-list2stack("^pNLCD_2019_Imp_AR_LA.tiff$")
+#plot(imp1)
+imp1_rat<-ratify(imp1[[1]])
+ARimp_df<-data.frame(raster::extract(imp1_rat, SPDF1))
+nested_df2[[2]][[1]]<-cbind(nested_df2[[2]][[1]],ARimp_df)
+```
+
+
+###FLORIDA
+
+```{r individual states}
+#ARK_LA
+NLCD2<-list2stack("^NLCD_2019_FL.tiff$")
+#plot(NLCD1)
+# First, we need to recognize it as a categorical raster using ratify(): 
+NLCD2_rat<-ratify(NLCD2[[1]])
+```
+
+
+```{r extract coords for spdf}
+#code to extract data frame of lat/long points of cases for spdf
+coords2 <- as.data.frame(structure(list(latitude = nested_df2[[2]][[2]]$lat, longitude = nested_df2[[2]][[2]]$long)))
+#convert to spdf
+SPDF2 <- SpatialPointsDataFrame(c(coords2[,c('longitude','latitude')]), data = coords2)
+#projection as North america
+#proj4string(SPDF1) <- CRS("+init=epsg:4326")
+# NAD83<-"+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs"
+# proj4string(SPDF2) <- CRS(NAD83)
+# SPDF2<-spTransform(SPDF2,NAD83)
+# #check bbox
+# sf::st_bbox(SPDF2)
+#plot(SPDF1)
+proj4string(SPDF2) <-  CRS("+init=epsg:4326")
+#SPDF1<-spTransform(SPDF1,NAD83)
+#check bbox
+#sf::st_bbox(SPDF1)
+#plot(SPDF1)
+
+target_crs = CRS("+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")  # This is your string assigned to an object
+
+SPDF2= spTransform(SPDF2, target_crs) ## object used to transform your data frame
+
+sf::st_bbox(SPDF2)
+```
+
+
+```{r extract land cover using coords}
+#extract landcover from points on spdf, will automatically reporject spdf to match raster
+extractLC2<-data.frame(raster::extract(NLCD2_rat,SPDF2))
+#rename column as code
+colnames(extractLC2)[1]<-"code"
+#convert to character so can join
+extractLC2$code%<>%as.character()
+#add legend description for each code
+extractLC2<-left_join(extractLC2,legend)
+#need to add back to original DF
+nested_df2[[2]][[2]]<-  cbind(nested_df2[[2]][[2]],extractLC2)
+```
+
+```{r}
+#get distance to water
+#get county fips codes for NC
+data(fips_codes)
+#extarct fips codes for State of choice, water features are stored by county
+fipsFL<-dplyr::filter(fips_codes, state_code=="12")
+#list all fips codes for all NC counties
+FL_county<-fipsFL$county_code
+FL_county<-FL_county[FL_county != "025"]
+#the data for dade county is missing
+#beginCluster()
+#get hydrological features for all NC counties
+FLwater<-area_water("FL",FL_county)
+
+#plot(FLwater$geometry)
+#extract geometry of water features
+FLwatergeo<-FLwater$geometry
+#convert to SF then SP
+FLwater_SF<-st_sf(FLwatergeo)
+FLwater_SP<-as(Class = "Spatial",FLwater_SF)
+# #distance to water in degrees
+# dist_2_water<-data.frame(apply(gDistance(d3, NCwater_SP,byid=TRUE),2,min))
+# #projections
+# wgs<-"+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
+# wgs84<-CRS(wgs)
+# #projection for NC in survey ft
+# epsg2264 <- CRS("+init=epsg:2264")
+#use 9311 for whole US, in metres
+epsg9311 <- CRS("+init=epsg:9311")
+
+#proj4string(SPDF2) <- CRS("+init=epsg:4326")
+#trnasform projections so both the same 
+SPDF2_water_proj <- spTransform(SPDF2,epsg9311)
+FLwater_proj   <- spTransform(FLwater_SP, epsg9311)
+#distance in metres
+FL_water_m<-data.frame(apply(gDistance(SPDF2_water_proj, FLwater_proj,byid=TRUE),2,min))
+# 
+# #NC projection
+# CDV.proj2 <- spTransform(d3,epsg2264)
+# water.proj2   <- spTransform(NCwater_SP, epsg2264)
+# #in feet
+# d2w_feet<-data.frame(apply(gDistance(CDV.proj2, water.proj2,byid=TRUE),2,min))
+# 
+
+nested_df2[[2]][[2]]<-cbind(nested_df2[[2]][[2]], FL_water_m)
+
+```
+
+```{r}
+#numbers for impervious surface are a percentage, with 100 being totally impervious
+plot(NLCDfiles[[13]])
+imp2<-list2stack("^pNLCD_2019_Imp_FL.tiff$")
+#plot(imp1)
+imp2_rat<-ratify(imp2[[1]])
+FLimp_df<-data.frame(raster::extract(imp2_rat, SPDF2))
+nested_df2[[2]][[2]]<-cbind(nested_df2[[2]][[2]],FLimp_df)
+```
+###GEORGIA
+
+```{r individual states}
+#ARK_LA
+NLCD3<-list2stack("^NLCD_2019_GA_SC.tiff$")
+#plot(NLCD1)
+# First, we need to recognize it as a categorical raster using ratify(): 
+NLCD3_rat<-ratify(NLCD3[[1]])
+```
+
+
+```{r extract coords for spdf}
+#code to extract data frame of lat/long points of cases for spdf
+coords3 <- as.data.frame(structure(list(latitude = nested_df2[[2]][[3]]$lat, longitude = nested_df2[[2]][[3]]$long)))
+#convert to spdf
+SPDF3 <- SpatialPointsDataFrame(c(coords3[,c('longitude','latitude')]), data = coords3)
+#projection as North america
+#proj4string(SPDF1) <- CRS("+init=epsg:4326")
+# NAD83<-"+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs"
+# proj4string(SPDF3) <- CRS(NAD83)
+# SPDF3<-spTransform(SPDF3,NAD83)
+# #check bbox
+# sf::st_bbox(SPDF3)
+# #plot(SPDF1)
+proj4string(SPDF3) <-  CRS("+init=epsg:4326")
+#SPDF1<-spTransform(SPDF1,NAD83)
+#check bbox
+#sf::st_bbox(SPDF1)
+#plot(SPDF1)
+
+target_crs = CRS("+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")  # This is your string assigned to an object
+
+SPDF3= spTransform(SPDF3, target_crs) ## object used to transform your data frame
+
+sf::st_bbox(SPDF3)
+```
+
+
+```{r extract land cover using coords}
+#extract landcover from points on spdf, will automatically reporject spdf to match raster
+
+
+extractLC3<-data.frame(raster::extract(NLCD3_rat,SPDF3))
+#rename column as code
+colnames(extractLC3)[1]<-"code"
+#convert to character so can join
+extractLC3$code%<>%as.character()
+#add legend description for each code
+extractLC3<-left_join(extractLC3,legend)
+#need to add back to original DF
+nested_df2[[2]][[3]]<-  cbind(nested_df2[[2]][[3]],extractLC3)
+```
+
+```{r}
+#get distance to water
+#get county fips codes for NC
+data(fips_codes)
+#extarct fips codes for State of choice, water features are stored by county
+fipsGA<-dplyr::filter(fips_codes, state_code=="13")
+#list all fips codes for all NC counties
+GA_county<-fipsGA$county_code
+beginCluster()
+#get hydrological features for all NC counties
+GAwater<-area_water("GA",GA_county)
+#plot(ARwater$geometry)
+#extract geometry of water features
+GAwatergeo<-GAwater$geometry
+#convert to SF then SP
+GAwater_SF<-st_sf(GAwatergeo)
+GAwater_SP<-as(Class = "Spatial",GAwater_SF)
+# #distance to water in degrees
+# dist_2_water<-data.frame(apply(gDistance(d3, NCwater_SP,byid=TRUE),2,min))
+# #projections
+# wgs<-"+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
+# wgs84<-CRS(wgs)
+# #projection for NC in survey ft
+# epsg2264 <- CRS("+init=epsg:2264")
+#use 9311 for whole US, in metres
+epsg9311 <- CRS("+init=epsg:9311")
+
+#proj4string(SPDF3) <- CRS("+init=epsg:4326")
+#trnasform projections so both the same 
+SPDF3_water_proj <- spTransform(SPDF3,epsg9311)
+GAwater_proj   <- spTransform(GAwater_SP, epsg9311)
+#distance in metres
+GA_water_m<-data.frame(apply(gDistance(SPDF3_water_proj, GAwater_proj,byid=TRUE),2,min))
+# 
+# #NC projection
+# CDV.proj2 <- spTransform(d3,epsg2264)
+# water.proj2   <- spTransform(NCwater_SP, epsg2264)
+# #in feet
+# d2w_feet<-data.frame(apply(gDistance(CDV.proj2, water.proj2,byid=TRUE),2,min))
+# 
+
+nested_df2[[2]][[3]]<-cbind(nested_df2[[2]][[3]], GA_water_m)
+
+```
+
+
+```{r}
+#numbers for impervious surface are a percentage, with 100 being totally impervious
+plot(NLCDfiles[[14]])
+imp3<-list2stack("^pNLCD_2019_Imp_GA_SC.tiff$")
+#plot(imp1)
+imp3_rat<-ratify(imp3[[1]])
+GAimp_df<-data.frame(raster::extract(imp3_rat, SPDF3))
+nested_df2[[2]][[3]]<-cbind(nested_df2[[2]][[3]],GAimp_df)
+```
+
+###KANSAS
+```{r individual states}
+#ARK_LA
+NLCD4<-list2stack("^NLCD_2019_KS.tiff$")
+#plot(NLCD1)
+# First, we need to recognize it as a categorical raster using ratify(): 
+NLCD4_rat<-ratify(NLCD4[[1]])
+```
+
+
+```{r extract coords for spdf}
+#code to extract data frame of lat/long points of cases for spdf
+coords4 <- as.data.frame(structure(list(latitude = nested_df2[[2]][[4]]$lat, longitude = nested_df2[[2]][[4]]$long)))
+#convert to spdf
+SPDF4 <- SpatialPointsDataFrame(c(coords4[,c('longitude','latitude')]), data = coords4)
+#projection as North america
+#proj4string(SPDF1) <- CRS("+init=epsg:4326")
+# NAD83<-"+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs"
+# proj4string(SPDF3) <- CRS(NAD83)
+# SPDF3<-spTransform(SPDF3,NAD83)
+# #check bbox
+# sf::st_bbox(SPDF3)
+# #plot(SPDF1)
+proj4string(SPDF4) <-  CRS("+init=epsg:4326")
+#SPDF1<-spTransform(SPDF1,NAD83)
+#check bbox
+#sf::st_bbox(SPDF1)
+#plot(SPDF1)
+
+target_crs = CRS("+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")  # This is your string assigned to an object
+
+SPDF4= spTransform(SPDF4, target_crs) ## object used to transform your data frame
+
+sf::st_bbox(SPDF4)
+```
+
+
+```{r extract land cover using coords}
+#extract landcover from points on spdf, will automatically reporject spdf to match raster
+
+
+extractLC4<-data.frame(raster::extract(NLCD4_rat,SPDF4))
+#rename column as code
+colnames(extractLC4)[1]<-"code"
+#convert to character so can join
+extractLC4$code%<>%as.character()
+#add legend description for each code
+extractLC4<-left_join(extractLC4,legend)
+#need to add back to original DF
+nested_df2[[2]][[4]]<-  cbind(nested_df2[[2]][[4]],extractLC4)
+```
+
+```{r}
+#get distance to water
+#get county fips codes for NC
+data(fips_codes)
+#extarct fips codes for State of choice, water features are stored by county
+fipsKS<-dplyr::filter(fips_codes, state_code=="20")
+#list all fips codes for all NC counties
+KS_county<-fipsKS$county_code
+beginCluster()
+#get hydrological features for all NC counties
+KSwater<-area_water("KS",KS_county)
+#plot(ARwater$geometry)
+#extract geometry of water features
+KSwatergeo<-KSwater$geometry
+#convert to SF then SP
+KSwater_SF<-st_sf(KSwatergeo)
+KSwater_SP<-as(Class = "Spatial",KSwater_SF)
+# #distance to water in degrees
+# dist_2_water<-data.frame(apply(gDistance(d3, NCwater_SP,byid=TRUE),2,min))
+# #projections
+# wgs<-"+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
+# wgs84<-CRS(wgs)
+# #projection for NC in survey ft
+# epsg2264 <- CRS("+init=epsg:2264")
+#use 9311 for whole US, in metres
+epsg9311 <- CRS("+init=epsg:9311")
+
+#proj4string(SPDF4) <- CRS("+init=epsg:4326")
+#trnasform projections so both the same 
+SPDF4_water_proj <- spTransform(SPDF4,epsg9311)
+KSwater_proj   <- spTransform(KSwater_SP, epsg9311)
+#distance in metres
+KS_water_m<-data.frame(apply(gDistance(SPDF4_water_proj, KSwater_proj,byid=TRUE),2,min))
+# 
+# #NC projection
+# CDV.proj2 <- spTransform(d3,epsg2264)
+# water.proj2   <- spTransform(NCwater_SP, epsg2264)
+# #in feet
+# d2w_feet<-data.frame(apply(gDistance(CDV.proj2, water.proj2,byid=TRUE),2,min))
+# 
+
+nested_df2[[2]][[4]]<-cbind(nested_df2[[2]][[4]], KS_water_m)
+
+```
+
+```{r}
+#numbers for impervious surface are a percentage, with 100 being totally impervious
+plot(NLCDfiles[[15]])
+imp4<-list2stack("^pNLCD_2019_Imp_KS.tiff$")
+#plot(imp1)
+imp4_rat<-ratify(imp4[[1]])
+KSimp_df<-data.frame(raster::extract(imp4_rat, SPDF4))
+nested_df2[[2]][[4]]<-cbind(nested_df2[[2]][[4]],KSimp_df)
+```
+###KENTUCKY
+```{r individual states}
+#ARK_LA
+NLCD5<-list2stack("^NLCD_2019_KY_TN.tiff$")
+#plot(NLCD1)
+# First, we need to recognize it as a categorical raster using ratify(): 
+NLCD5_rat<-ratify(NLCD5[[1]])
+```
+
+
+```{r extract coords for spdf}
+#code to extract data frame of lat/long points of cases for spdf
+coords5 <- as.data.frame(structure(list(latitude = nested_df2[[2]][[5]]$lat, longitude = nested_df2[[2]][[5]]$long)))
+#convert to spdf
+SPDF5 <- SpatialPointsDataFrame(c(coords5[,c('longitude','latitude')]), data = coords5)
+#projection as North america
+#proj4string(SPDF1) <- CRS("+init=epsg:4326")
+# NAD83<-"+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs"
+# proj4string(SPDF3) <- CRS(NAD83)
+# SPDF3<-spTransform(SPDF3,NAD83)
+# #check bbox
+# sf::st_bbox(SPDF3)
+# #plot(SPDF1)
+proj4string(SPDF5) <-  CRS("+init=epsg:4326")
+#SPDF1<-spTransform(SPDF1,NAD83)
+#check bbox
+#sf::st_bbox(SPDF1)
+#plot(SPDF1)
+
+target_crs = CRS("+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")  # This is your string assigned to an object
+
+SPDF5= spTransform(SPDF5, target_crs) ## object used to transform your data frame
+
+sf::st_bbox(SPDF5)
+```
+
+
+```{r extract land cover using coords}
+#extract landcover from points on spdf, will automatically reporject spdf to match raster
+
+
+extractLC5<-data.frame(raster::extract(NLCD5_rat,SPDF5))
+#rename column as code
+colnames(extractLC5)[1]<-"code"
+#convert to character so can join
+extractLC5$code%<>%as.character()
+#add legend description for each code
+extractLC5<-left_join(extractLC5,legend)
+#need to add back to original DF
+nested_df2[[2]][[5]]<-  cbind(nested_df2[[2]][[5]],extractLC5)
+```
+
+```{r}
+#get distance to water
+#get county fips codes for NC
+data(fips_codes)
+#extarct fips codes for State of choice, water features are stored by county
+fipsKY<-dplyr::filter(fips_codes, state_code=="21")
+#list all fips codes for all NC counties
+KY_county<-fipsKY$county_code
+#beginCluster()
+#get hydrological features for all NC counties
+KYwater<-area_water("KY",KY_county)
+#plot(ARwater$geometry)
+#extract geometry of water features
+KYwatergeo<-KYwater$geometry
+#convert to SF then SP
+KYwater_SF<-st_sf(KYwatergeo)
+KYwater_SP<-as(Class = "Spatial",KYwater_SF)
+# #distance to water in degrees
+# dist_2_water<-data.frame(apply(gDistance(d3, NCwater_SP,byid=TRUE),2,min))
+# #projections
+# wgs<-"+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
+# wgs84<-CRS(wgs)
+# #projection for NC in survey ft
+# epsg2264 <- CRS("+init=epsg:2264")
+#use 9311 for whole US, in metres
+epsg9311 <- CRS("+init=epsg:9311")
+
+#proj4string(SPDF5) <- CRS("+init=epsg:4326")
+#trnasform projections so both the same 
+SPDF5_water_proj <- spTransform(SPDF5,epsg9311)
+KYwater_proj   <- spTransform(KYwater_SP, epsg9311)
+#distance in metres
+KY_water_m<-data.frame(apply(gDistance(SPDF5_water_proj, KYwater_proj,byid=TRUE),2,min))
+# 
+# #NC projection
+# CDV.proj2 <- spTransform(d3,epsg2264)
+# water.proj2   <- spTransform(NCwater_SP, epsg2264)
+# #in feet
+# d2w_feet<-data.frame(apply(gDistance(CDV.proj2, water.proj2,byid=TRUE),2,min))
+# 
+
+nested_df2[[2]][[5]]<-cbind(nested_df2[[2]][[5]], KY_water_m)
+
+```
+
+```{r}
+#numbers for impervious surface are a percentage, with 100 being totally impervious
+plot(NLCDfiles[[16]])
+imp5<-list2stack("^pNLCD_2019_Imp_KY_TN.tiff$")
+#plot(imp1)
+imp5_rat<-ratify(imp5[[1]])
+KYimp_df<-data.frame(raster::extract(imp5_rat, SPDF5))
+nested_df2[[2]][[5]]<-cbind(nested_df2[[2]][[5]],KYimp_df)
+```
+###LOUISIANA
+```{r individual states}
+#ARK_LA
+#NLCD6<-list2stack("^NLCD_2019_KS.tiff$")
+#plot(NLCD1)
+# First, we need to recognize it as a categorical raster using ratify(): 
+#NLCD4_rat<-ratify(NLCD4[[1]])
+#
+#LA is already done with AR
+```
+
+
+```{r extract coords for spdf}
+#code to extract data frame of lat/long points of cases for spdf
+coords6 <- as.data.frame(structure(list(latitude = nested_df2[[2]][[6]]$lat, longitude = nested_df2[[2]][[6]]$long)))
+#convert to spdf
+SPDF6 <- SpatialPointsDataFrame(c(coords6[,c('longitude','latitude')]), data = coords6)
+#projection as North america
+#proj4string(SPDF1) <- CRS("+init=epsg:4326")
+# NAD83<-"+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs"
+# proj4string(SPDF3) <- CRS(NAD83)
+# SPDF3<-spTransform(SPDF3,NAD83)
+# #check bbox
+# sf::st_bbox(SPDF3)
+# #plot(SPDF1)
+proj4string(SPDF6) <-  CRS("+init=epsg:4326")
+#SPDF1<-spTransform(SPDF1,NAD83)
+#check bbox
+#sf::st_bbox(SPDF1)
+#plot(SPDF1)
+
+target_crs = CRS("+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")  # This is your string assigned to an object
+
+SPDF6= spTransform(SPDF6, target_crs) ## object used to transform your data frame
+
+sf::st_bbox(SPDF6)
+```
+
+
+```{r extract land cover using coords}
+#extract landcover from points on spdf, will automatically reporject spdf to match raster
+
+
+extractLC6<-data.frame(raster::extract(NLCD1_rat,SPDF6))
+#rename column as code
+colnames(extractLC6)[1]<-"code"
+#convert to character so can join
+extractLC6$code%<>%as.character()
+#add legend description for each code
+extractLC6<-left_join(extractLC6,legend)
+#need to add back to original DF
+nested_df2[[2]][[6]]<-  cbind(nested_df2[[2]][[6]],extractLC6)
+```
+
+```{r}
+#get distance to water
+#get county fips codes for NC
+data(fips_codes)
+#extarct fips codes for State of choice, water features are stored by county
+fipsLA<-dplyr::filter(fips_codes, state_code=="22")
+#list all fips codes for all NC counties
+LA_county<-fipsLA$county_code
+#beginCluster()
+#get hydrological features for all NC counties
+LAwater<-area_water("LA",LA_county)
+#plot(ARwater$geometry)
+#extract geometry of water features
+LAwatergeo<-LAwater$geometry
+#convert to SF then SP
+LAwater_SF<-st_sf(LAwatergeo)
+LAwater_SP<-as(Class = "Spatial",LAwater_SF)
+# #distance to water in degrees
+# dist_2_water<-data.frame(apply(gDistance(d3, NCwater_SP,byid=TRUE),2,min))
+# #projections
+# wgs<-"+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
+# wgs84<-CRS(wgs)
+# #projection for NC in survey ft
+# epsg2264 <- CRS("+init=epsg:2264")
+#use 9311 for whole US, in metres
+epsg9311 <- CRS("+init=epsg:9311")
+
+#proj4string(SPDF6) <- CRS("+init=epsg:4326")
+#trnasform projections so both the same 
+SPDF6_water_proj <- spTransform(SPDF6,epsg9311)
+LAwater_proj   <- spTransform(LAwater_SP, epsg9311)
+#distance in metres
+LA_water_m<-data.frame(apply(gDistance(SPDF6_water_proj, LAwater_proj,byid=TRUE),2,min))
+# 
+# #NC projection
+# CDV.proj2 <- spTransform(d3,epsg2264)
+# water.proj2   <- spTransform(NCwater_SP, epsg2264)
+# #in feet
+# d2w_feet<-data.frame(apply(gDistance(CDV.proj2, water.proj2,byid=TRUE),2,min))
+# 
+
+nested_df2[[2]][[6]]<-cbind(nested_df2[[2]][[6]], LA_water_m)
+
+```
+
+```{r}
+#numbers for impervious surface are a percentage, with 100 being totally impervious
+#plot(NLCDfiles[[15]])
+#imp4<-list2stack("^pNLCD_2019_Imp_KS.tiff$")
+#plot(imp1)
+#imp4_rat<-ratify(imp4[[1]])
+LAimp_df<-data.frame(raster::extract(imp1_rat, SPDF6))
+nested_df2[[2]][[6]]<-cbind(nested_df2[[2]][[6]],LAimp_df)
+```
+
+
+###MISSOURI
+```{r individual states}
+#ARK_LA
+NLCD7<-list2stack("^NLCD_2019_MO.tiff$")
+#plot(NLCD1)
+# First, we need to recognize it as a categorical raster using ratify(): 
+NLCD7_rat<-ratify(NLCD7[[1]])
+```
+
+
+```{r extract coords for spdf}
+#code to extract data frame of lat/long points of cases for spdf
+coords7 <- as.data.frame(structure(list(latitude = nested_df2[[2]][[7]]$lat, longitude = nested_df2[[2]][[7]]$long)))
+#convert to spdf
+SPDF7 <- SpatialPointsDataFrame(c(coords7[,c('longitude','latitude')]), data = coords7)
+#projection as North america
+#proj4string(SPDF1) <- CRS("+init=epsg:4326")
+# NAD83<-"+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs"
+# proj4string(SPDF3) <- CRS(NAD83)
+# SPDF3<-spTransform(SPDF3,NAD83)
+# #check bbox
+# sf::st_bbox(SPDF3)
+# #plot(SPDF1)
+proj4string(SPDF7) <-  CRS("+init=epsg:4326")
+#SPDF1<-spTransform(SPDF1,NAD83)
+#check bbox
+#sf::st_bbox(SPDF1)
+#plot(SPDF1)
+
+target_crs = CRS("+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")  # This is your string assigned to an object
+
+SPDF7= spTransform(SPDF7, target_crs) ## object used to transform your data frame
+
+sf::st_bbox(SPDF7)
+```
+
+
+```{r extract land cover using coords}
+#extract landcover from points on spdf, will automatically reporject spdf to match raster
+
+
+extractLC7<-data.frame(raster::extract(NLCD7_rat,SPDF7))
+#rename column as code
+colnames(extractLC7)[1]<-"code"
+#convert to character so can join
+extractLC7$code%<>%as.character()
+#add legend description for each code
+extractLC7<-left_join(extractLC7,legend)
+#need to add back to original DF
+nested_df2[[2]][[7]]<-  cbind(nested_df2[[2]][[7]],extractLC7)
+```
+
+```{r}
+#get distance to water
+#get county fips codes for NC
+data(fips_codes)
+#extarct fips codes for State of choice, water features are stored by county
+fipsMO<-dplyr::filter(fips_codes, state_code=="29")
+#list all fips codes for all NC counties
+MO_county<-fipsMO$county_code
+#beginCluster()
+#get hydrological features for all NC counties
+MOwater<-area_water("MO",MO_county)
+#plot(ARwater$geometry)
+#extract geometry of water features
+MOwatergeo<-MOwater$geometry
+#convert to SF then SP
+MOwater_SF<-st_sf(MOwatergeo)
+MOwater_SP<-as(Class = "Spatial",MOwater_SF)
+# #distance to water in degrees
+# dist_2_water<-data.frame(apply(gDistance(d3, NCwater_SP,byid=TRUE),2,min))
+# #projections
+# wgs<-"+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
+# wgs84<-CRS(wgs)
+# #projection for NC in survey ft
+# epsg2264 <- CRS("+init=epsg:2264")
+#use 9311 for whole US, in metres
+epsg9311 <- CRS("+init=epsg:9311")
+
+#proj4string(SPDF7) <- CRS("+init=epsg:4326")
+#trnasform projections so both the same 
+SPDF7_water_proj <- spTransform(SPDF7,epsg9311)
+MOwater_proj   <- spTransform(MOwater_SP, epsg9311)
+#distance in metres
+MO_water_m<-data.frame(apply(gDistance(SPDF7_water_proj, MOwater_proj,byid=TRUE),2,min))
+# 
+# #NC projection
+# CDV.proj2 <- spTransform(d3,epsg2264)
+# water.proj2   <- spTransform(NCwater_SP, epsg2264)
+# #in feet
+# d2w_feet<-data.frame(apply(gDistance(CDV.proj2, water.proj2,byid=TRUE),2,min))
+# 
+
+nested_df2[[2]][[7]]<-cbind(nested_df2[[2]][[7]], MO_water_m)
+
+```
+
+```{r}
+#numbers for impervious surface are a percentage, with 100 being totally impervious
+plot(NLCDfiles[[17]])
+imp7<-list2stack("^pNLCD_2019_Imp_MO.tiff$")
+#plot(imp1)
+imp7_rat<-ratify(imp7[[1]])
+MOimp_df<-data.frame(raster::extract(imp7_rat, SPDF7))
+nested_df2[[2]][[7]]<-cbind(nested_df2[[2]][[7]],MOimp_df)
+```
+###NORTH CAROLINA
+```{r individual states}
+#ARK_LA
+NLCD8<-list2stack("^NLCD_2019_NC.tiff$")
+#plot(NLCD1)
+# First, we need to recognize it as a categorical raster using ratify(): 
+NLCD8_rat<-ratify(NLCD8[[1]])
+```
+
+
+```{r extract coords for spdf}
+#code to extract data frame of lat/long points of cases for spdf
+coords8 <- as.data.frame(structure(list(latitude = nested_df2[[2]][[8]]$lat, longitude = nested_df2[[2]][[8]]$long)))
+#convert to spdf
+SPDF8 <- SpatialPointsDataFrame(c(coords8[,c('longitude','latitude')]), data = coords8)
+#projection as North america
+#proj4string(SPDF1) <- CRS("+init=epsg:4326")
+# NAD83<-"+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs"
+# proj4string(SPDF3) <- CRS(NAD83)
+# SPDF3<-spTransform(SPDF3,NAD83)
+# #check bbox
+# sf::st_bbox(SPDF3)
+# #plot(SPDF1)
+proj4string(SPDF8) <-  CRS("+init=epsg:4326")
+#SPDF1<-spTransform(SPDF1,NAD83)
+#check bbox
+#sf::st_bbox(SPDF1)
+#plot(SPDF1)
+
+target_crs = CRS("+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")  # This is your string assigned to an object
+
+SPDF8= spTransform(SPDF8, target_crs) ## object used to transform your data frame
+
+sf::st_bbox(SPDF8)
+```
+
+
+```{r extract land cover using coords}
+#extract landcover from points on spdf, will automatically reporject spdf to match raster
+
+
+extractLC8<-data.frame(raster::extract(NLCD8_rat,SPDF8))
+#rename column as code
+colnames(extractLC8)[1]<-"code"
+#convert to character so can join
+extractLC8$code%<>%as.character()
+#add legend description for each code
+extractLC8<-left_join(extractLC8,legend)
+#need to add back to original DF
+nested_df2[[2]][[8]]<-  cbind(nested_df2[[2]][[8]],extractLC8)
+```
+
+```{r}
+#get distance to water
+#get county fips codes for NC
+data(fips_codes)
+#extarct fips codes for State of choice, water features are stored by county
+fipsNC<-dplyr::filter(fips_codes, state_code=="37")
+#list all fips codes for all NC counties
+NC_county<-fipsNC$county_code
+#beginCluster()
+#get hydrological features for all NC counties
+NCwater<-area_water("NC",NC_county)
+#plot(ARwater$geometry)
+#extract geometry of water features
+NCwatergeo<-NCwater$geometry
+#convert to SF then SP
+NCwater_SF<-st_sf(NCwatergeo)
+NCwater_SP<-as(Class = "Spatial",NCwater_SF)
+# #distance to water in degrees
+# dist_2_water<-data.frame(apply(gDistance(d3, NCwater_SP,byid=TRUE),2,min))
+# #projections
+# wgs<-"+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
+# wgs84<-CRS(wgs)
+# #projection for NC in survey ft
+# epsg2264 <- CRS("+init=epsg:2264")
+#use 9311 for whole US, in metres
+epsg9311 <- CRS("+init=epsg:9311")
+
+#proj4string(SPDF8) <- CRS("+init=epsg:4326")
+#trnasform projections so both the same 
+SPDF8_water_proj <- spTransform(SPDF8,epsg9311)
+NCwater_proj   <- spTransform(NCwater_SP, epsg9311)
+#distance in metres
+NC_water_m<-data.frame(apply(gDistance(SPDF8_water_proj, NCwater_proj,byid=TRUE),2,min))
+# 
+# #NC projection
+# CDV.proj2 <- spTransform(d3,epsg2264)
+# water.proj2   <- spTransform(NCwater_SP, epsg2264)
+# #in feet
+# d2w_feet<-data.frame(apply(gDistance(CDV.proj2, water.proj2,byid=TRUE),2,min))
+# 
+
+nested_df2[[2]][[8]]<-cbind(nested_df2[[2]][[8]], NC_water_m)
+
+```
+
+```{r}
+#numbers for impervious surface are a percentage, with 100 being totally impervious
+plot(NLCDfiles[[19]])
+imp8<-list2stack("^pNLCD_2019_Imp_NC.tiff$")
+#plot(imp1)
+imp8_rat<-ratify(imp8[[1]])
+NCimp_df<-data.frame(raster::extract(imp8_rat, SPDF8))
+nested_df2[[2]][[8]]<-cbind(nested_df2[[2]][[8]],NCimp_df)
+```
+
+
+###NEBRASKA
+```{r individual states}
+#ARK_LA
+NLCD9<-list2stack("^NLCD_2019_NE.tiff$")
+#plot(NLCD1)
+# First, we need to recognize it as a categorical raster using ratify(): 
+NLCD9_rat<-ratify(NLCD9[[1]])
+```
+
+
+```{r extract coords for spdf}
+#code to extract data frame of lat/long points of cases for spdf
+coords9 <- as.data.frame(structure(list(latitude = nested_df2[[2]][[9]]$lat, longitude = nested_df2[[2]][[9]]$long)))
+#convert to spdf
+SPDF9 <- SpatialPointsDataFrame(c(coords9[,c('longitude','latitude')]), data = coords9)
+#projection as North america
+#proj4string(SPDF1) <- CRS("+init=epsg:4326")
+# NAD83<-"+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs"
+# proj4string(SPDF3) <- CRS(NAD83)
+# SPDF3<-spTransform(SPDF3,NAD83)
+# #check bbox
+# sf::st_bbox(SPDF3)
+# #plot(SPDF1)
+proj4string(SPDF9) <-  CRS("+init=epsg:4326")
+#SPDF1<-spTransform(SPDF1,NAD83)
+#check bbox
+#sf::st_bbox(SPDF1)
+#plot(SPDF1)
+
+target_crs = CRS("+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")  # This is your string assigned to an object
+
+SPDF9= spTransform(SPDF9, target_crs) ## object used to transform your data frame
+
+sf::st_bbox(SPDF9)
+```
+
+
+```{r extract land cover using coords}
+#extract landcover from points on spdf, will automatically reporject spdf to match raster
+
+
+extractLC9<-data.frame(raster::extract(NLCD9_rat,SPDF9))
+#rename column as code
+colnames(extractLC9)[1]<-"code"
+#convert to character so can join
+extractLC9$code%<>%as.character()
+#add legend description for each code
+extractLC9<-left_join(extractLC9,legend)
+#need to add back to original DF
+nested_df2[[2]][[9]]<-  cbind(nested_df2[[2]][[9]],extractLC9)
+```
+
+```{r}
+#get distance to water
+#get county fips codes for NC
+data(fips_codes)
+#extarct fips codes for State of choice, water features are stored by county
+fipsNE<-dplyr::filter(fips_codes, state_code=="31")
+#list all fips codes for all NC counties
+NE_county<-fipsNE$county_code
+#beginCluster()
+#get hydrological features for all NC counties
+NEwater<-area_water("NE",NE_county)
+#plot(ARwater$geometry)
+#extract geometry of water features
+NEwatergeo<-NEwater$geometry
+#convert to SF then SP
+NEwater_SF<-st_sf(NEwatergeo)
+NEwater_SP<-as(Class = "Spatial",NEwater_SF)
+# #distance to water in degrees
+# dist_2_water<-data.frame(apply(gDistance(d3, NCwater_SP,byid=TRUE),2,min))
+# #projections
+# wgs<-"+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
+# wgs84<-CRS(wgs)
+# #projection for NC in survey ft
+# epsg2264 <- CRS("+init=epsg:2264")
+#use 9311 for whole US, in metres
+epsg9311 <- CRS("+init=epsg:9311")
+
+#proj4string(SPDF9) <- CRS("+init=epsg:4326")
+#trnasform projections so both the same 
+SPDF9_water_proj <- spTransform(SPDF9,epsg9311)
+NEwater_proj   <- spTransform(NEwater_SP, epsg9311)
+#distance in metres
+NE_water_m<-data.frame(apply(gDistance(SPDF9_water_proj, NEwater_proj,byid=TRUE),2,min))
+# 
+# #NC projection
+# CDV.proj2 <- spTransform(d3,epsg2264)
+# water.proj2   <- spTransform(NCwater_SP, epsg2264)
+# #in feet
+# d2w_feet<-data.frame(apply(gDistance(CDV.proj2, water.proj2,byid=TRUE),2,min))
+# 
+
+nested_df2[[2]][[9]]<-cbind(nested_df2[[2]][[9]], NE_water_m)
+
+```
+
+```{r}
+#numbers for impervious surface are a percentage, with 100 being totally impervious
+plot(NLCDfiles[[20]])
+imp9<-list2stack("^pNLCD_2019_Imp_NE.tiff$")
+#plot(imp1)
+imp9_rat<-ratify(imp9[[1]])
+NEimp_df<-data.frame(raster::extract(imp9_rat, SPDF9))
+nested_df2[[2]][[9]]<-cbind(nested_df2[[2]][[9]],NEimp_df)
+```
+###PENNSYLVANIA
+```{r individual states}
+#ARK_LA
+NLCD10<-list2stack("^NLCD_2019_PA_WV_MD.tiff$")
+#plot(NLCD1)
+# First, we need to recognize it as a categorical raster using ratify(): 
+NLCD10_rat<-ratify(NLCD10[[1]])
+```
+
+
+```{r extract coords for spdf}
+#code to extract data frame of lat/long points of cases for spdf
+coords10 <- as.data.frame(structure(list(latitude = nested_df2[[2]][[10]]$lat, longitude = nested_df2[[2]][[10]]$long)))
+#convert to spdf
+SPDF10 <- SpatialPointsDataFrame(c(coords10[,c('longitude','latitude')]), data = coords10)
+#projection as North america
+#proj4string(SPDF1) <- CRS("+init=epsg:4326")
+# NAD83<-"+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs"
+# proj4string(SPDF3) <- CRS(NAD83)
+# SPDF3<-spTransform(SPDF3,NAD83)
+# #check bbox
+# sf::st_bbox(SPDF3)
+# #plot(SPDF1)
+proj4string(SPDF10) <-  CRS("+init=epsg:4326")
+#SPDF1<-spTransform(SPDF1,NAD83)
+#check bbox
+#sf::st_bbox(SPDF1)
+#plot(SPDF1)
+
+target_crs = CRS("+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")  # This is your string assigned to an object
+
+SPDF10= spTransform(SPDF10, target_crs) ## object used to transform your data frame
+
+sf::st_bbox(SPDF10)
+```
+
+
+```{r extract land cover using coords}
+#extract landcover from points on spdf, will automatically reporject spdf to match raster
+
+
+extractLC10<-data.frame(raster::extract(NLCD10_rat,SPDF10))
+#rename column as code
+colnames(extractLC10)[1]<-"code"
+#convert to character so can join
+extractLC10$code%<>%as.character()
+#add legend description for each code
+extractLC10<-left_join(extractLC10,legend)
+#need to add back to original DF
+nested_df2[[2]][[10]]<-  cbind(nested_df2[[2]][[10]],extractLC10)
+```
+
+```{r}
+#get distance to water
+#get county fips codes for NC
+data(fips_codes)
+#extarct fips codes for State of choice, water features are stored by county
+fipsPA<-dplyr::filter(fips_codes, state_code=="42")
+#list all fips codes for all NC counties
+PA_county<-fipsPA$county_code
+#beginCluster()
+#get hydrological features for all NC counties
+PAwater<-area_water("PA",PA_county)
+#plot(ARwater$geometry)
+#extract geometry of water features
+PAwatergeo<-PAwater$geometry
+#convert to SF then SP
+PAwater_SF<-st_sf(PAwatergeo)
+PAwater_SP<-as(Class = "Spatial",PAwater_SF)
+# #distance to water in degrees
+# dist_2_water<-data.frame(apply(gDistance(d3, NCwater_SP,byid=TRUE),2,min))
+# #projections
+# wgs<-"+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
+# wgs84<-CRS(wgs)
+# #projection for NC in survey ft
+# epsg2264 <- CRS("+init=epsg:2264")
+#use 9311 for whole US, in metres
+epsg9311 <- CRS("+init=epsg:9311")
+
+#proj4string(SPDF4) <- CRS("+init=epsg:4326")
+#trnasform projections so both the same 
+SPDF10_water_proj <- spTransform(SPDF10,epsg9311)
+PAwater_proj   <- spTransform(PAwater_SP, epsg9311)
+#distance in metres
+PA_water_m<-data.frame(apply(gDistance(SPDF10_water_proj, PAwater_proj,byid=TRUE),2,min))
+# 
+# #NC projection
+# CDV.proj2 <- spTransform(d3,epsg2264)
+# water.proj2   <- spTransform(NCwater_SP, epsg2264)
+# #in feet
+# d2w_feet<-data.frame(apply(gDistance(CDV.proj2, water.proj2,byid=TRUE),2,min))
+# 
+
+nested_df2[[2]][[10]]<-cbind(nested_df2[[2]][[10]], PA_water_m)
+
+```
+
+```{r}
+#numbers for impervious surface are a percentage, with 100 being totally impervious
+plot(NLCDfiles[[21]])
+imp10<-list2stack("^pNLCD_2019_Imp_PA_WV_MD.tiff$")
+#plot(imp1)
+imp10_rat<-ratify(imp10[[1]])
+PAimp_df<-data.frame(raster::extract(imp10_rat, SPDF10))
+nested_df2[[2]][[10]]<-cbind(nested_df2[[2]][[10]],PAimp_df)
+```
+
+
+###TENNESSEE
+```{r individual states}
+#ARK_LA
+#NLCD4<-list2stack("^NLCD_2019_KS.tiff$")
+#plot(NLCD1)
+# First, we need to recognize it as a categorical raster using ratify(): 
+#NLCD4_rat<-ratify(NLCD4[[1]])
+```
+
+
+```{r extract coords for spdf}
+#code to extract data frame of lat/long points of cases for spdf
+coords11 <- as.data.frame(structure(list(latitude = nested_df2[[2]][[11]]$lat, longitude = nested_df2[[2]][[11]]$long)))
+#convert to spdf
+SPDF11 <- SpatialPointsDataFrame(c(coords11[,c('longitude','latitude')]), data = coords11)
+#projection as North america
+#proj4string(SPDF1) <- CRS("+init=epsg:4326")
+# NAD83<-"+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs"
+# proj4string(SPDF3) <- CRS(NAD83)
+# SPDF3<-spTransform(SPDF3,NAD83)
+# #check bbox
+# sf::st_bbox(SPDF3)
+# #plot(SPDF1)
+proj4string(SPDF11) <-  CRS("+init=epsg:4326")
+#SPDF1<-spTransform(SPDF1,NAD83)
+#check bbox
+#sf::st_bbox(SPDF1)
+#plot(SPDF1)
+
+target_crs = CRS("+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")  # This is your string assigned to an object
+
+SPDF11= spTransform(SPDF11, target_crs) ## object used to transform your data frame
+
+sf::st_bbox(SPDF11)
+```
+
+
+```{r extract land cover using coords}
+#extract landcover from points on spdf, will automatically reporject spdf to match raster
+
+
+extractLC11<-data.frame(raster::extract(NLCD5_rat,SPDF11))
+#rename column as code
+colnames(extractLC11)[1]<-"code"
+#convert to character so can join
+extractLC11$code%<>%as.character()
+#add legend description for each code
+extractLC11<-left_join(extractLC11,legend)
+#need to add back to original DF
+nested_df2[[2]][[11]]<-  cbind(nested_df2[[2]][[11]],extractLC11)
+```
+
+```{r}
+#get distance to water
+#get county fips codes for NC
+data(fips_codes)
+#extarct fips codes for State of choice, water features are stored by county
+fipsTN<-dplyr::filter(fips_codes, state_code=="47")
+#list all fips codes for all NC counties
+TN_county<-fipsTN$county_code
+#beginCluster()
+#get hydrological features for all NC counties
+TNwater<-area_water("TN",TN_county)
+#plot(ARwater$geometry)
+#extract geometry of water features
+TNwatergeo<-TNwater$geometry
+#convert to SF then SP
+TNwater_SF<-st_sf(TNwatergeo)
+TNwater_SP<-as(Class = "Spatial",TNwater_SF)
+# #distance to water in degrees
+# dist_2_water<-data.frame(apply(gDistance(d3, NCwater_SP,byid=TRUE),2,min))
+# #projections
+# wgs<-"+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
+# wgs84<-CRS(wgs)
+# #projection for NC in survey ft
+# epsg2264 <- CRS("+init=epsg:2264")
+#use 9311 for whole US, in metres
+epsg9311 <- CRS("+init=epsg:9311")
+
+#proj4string(SPDF4) <- CRS("+init=epsg:4326")
+#trnasform projections so both the same 
+SPDF11_water_proj <- spTransform(SPDF11,epsg9311)
+TNwater_proj   <- spTransform(TNwater_SP, epsg9311)
+#distance in metres
+TN_water_m<-data.frame(apply(gDistance(SPDF11_water_proj, TNwater_proj,byid=TRUE),2,min))
+# 
+# #NC projection
+# CDV.proj2 <- spTransform(d3,epsg2264)
+# water.proj2   <- spTransform(NCwater_SP, epsg2264)
+# #in feet
+# d2w_feet<-data.frame(apply(gDistance(CDV.proj2, water.proj2,byid=TRUE),2,min))
+# 
+
+nested_df2[[2]][[11]]<-cbind(nested_df2[[2]][[11]], TN_water_m)
+
+```
+
+```{r}
+#numbers for impervious surface are a percentage, with 100 being totally impervious
+#plot(NLCDfiles[[15]])
+#imp4<-list2stack("^pNLCD_2019_Imp_KS.tiff$")
+#plot(imp1)
+#imp4_rat<-ratify(imp4[[1]])
+TNimp_df<-data.frame(raster::extract(imp5_rat, SPDF11))
+nested_df2[[2]][[11]]<-cbind(nested_df2[[2]][[11]],TNimp_df)
+```
+###VIRGINIA
+```{r individual states}
+#ARK_LA
+NLCD12<-list2stack("^NLCD_2019_VA.tiff$")
+#plot(NLCD1)
+# First, we need to recognize it as a categorical raster using ratify(): 
+NLCD12_rat<-ratify(NLCD12[[1]])
+```
+
+
+```{r extract coords for spdf}
+#code to extract data frame of lat/long points of cases for spdf
+coords12 <- as.data.frame(structure(list(latitude = nested_df2[[2]][[12]]$lat, longitude = nested_df2[[2]][[12]]$long)))
+#convert to spdf
+SPDF12 <- SpatialPointsDataFrame(c(coords12[,c('longitude','latitude')]), data = coords12)
+#projection as North america
+#proj4string(SPDF1) <- CRS("+init=epsg:4326")
+# NAD83<-"+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs"
+# proj4string(SPDF3) <- CRS(NAD83)
+# SPDF3<-spTransform(SPDF3,NAD83)
+# #check bbox
+# sf::st_bbox(SPDF3)
+# #plot(SPDF1)
+proj4string(SPDF12) <-  CRS("+init=epsg:4326")
+#SPDF1<-spTransform(SPDF1,NAD83)
+#check bbox
+#sf::st_bbox(SPDF1)
+#plot(SPDF1)
+
+target_crs = CRS("+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")  # This is your string assigned to an object
+
+SPDF12= spTransform(SPDF12, target_crs) ## object used to transform your data frame
+
+sf::st_bbox(SPDF12)
+```
+
+
+```{r extract land cover using coords}
+#extract landcover from points on spdf, will automatically reporject spdf to match raster
+
+
+extractLC12<-data.frame(raster::extract(NLCD12_rat,SPDF12))
+#rename column as code
+colnames(extractLC12)[1]<-"code"
+#convert to character so can join
+extractLC12$code%<>%as.character()
+#add legend description for each code
+extractLC12<-left_join(extractLC12,legend)
+#need to add back to original DF
+nested_df2[[2]][[12]]<-  cbind(nested_df2[[2]][[12]],extractLC12)
+```
+
+```{r}
+#get distance to water
+#get county fips codes for NC
+data(fips_codes)
+#extarct fips codes for State of choice, water features are stored by county
+fipsVA<-dplyr::filter(fips_codes, state_code=="51")
+#list all fips codes for all NC counties
+VA_county<-fipsVA$county_code
+VA_county<-VA_county[VA_county != "515"]
+VA_county<-VA_county[VA_county != "560"]
+VA_county<-VA_county[VA_county != "780"]
+#beginCluster()
+#get hydrological features for all NC counties
+VAwater<-area_water("VA",VA_county)
+#plot(ARwater$geometry)
+#extract geometry of water features
+VAwatergeo<-VAwater$geometry
+#convert to SF then SP
+VAwater_SF<-st_sf(VAwatergeo)
+VAwater_SP<-as(Class = "Spatial",VAwater_SF)
+# #distance to water in degrees
+# dist_2_water<-data.frame(apply(gDistance(d3, NCwater_SP,byid=TRUE),2,min))
+# #projections
+# wgs<-"+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
+# wgs84<-CRS(wgs)
+# #projection for NC in survey ft
+# epsg2264 <- CRS("+init=epsg:2264")
+#use 9311 for whole US, in metres
+epsg9311 <- CRS("+init=epsg:9311")
+
+#proj4string(SPDF4) <- CRS("+init=epsg:4326")
+#trnasform projections so both the same 
+SPDF12_water_proj <- spTransform(SPDF12,epsg9311)
+VAwater_proj   <- spTransform(VAwater_SP, epsg9311)
+#distance in metres
+VA_water_m<-data.frame(apply(gDistance(SPDF12_water_proj, VAwater_proj,byid=TRUE),2,min))
+# 
+# #NC projection
+# CDV.proj2 <- spTransform(d3,epsg2264)
+# water.proj2   <- spTransform(NCwater_SP, epsg2264)
+# #in feet
+# d2w_feet<-data.frame(apply(gDistance(CDV.proj2, water.proj2,byid=TRUE),2,min))
+# 
+
+nested_df2[[2]][[12]]<-cbind(nested_df2[[2]][[12]], VA_water_m)
+
+```
+
+```{r}
+#numbers for impervious surface are a percentage, with 100 being totally impervious
+plot(NLCDfiles[[22]])
+imp12<-list2stack("^pNLCD_2019_Imp_VA.tiff$")
+#plot(imp1)
+imp12_rat<-ratify(imp12[[1]])
+VAimp_df<-data.frame(raster::extract(imp12_rat, SPDF12))
+nested_df2[[2]][[12]]<-cbind(nested_df2[[2]][[12]],VAimp_df)
+```
+###WEST VIRGINIA
+```{r individual states}
+#ARK_LA
+#NLCD4<-list2stack("^NLCD_2019_KS.tiff$")
+#plot(NLCD1)
+# First, we need to recognize it as a categorical raster using ratify(): 
+#NLCD4_rat<-ratify(NLCD4[[1]])
+```
+
+
+```{r extract coords for spdf}
+#code to extract data frame of lat/long points of cases for spdf
+coords13 <- as.data.frame(structure(list(latitude = nested_df2[[2]][[13]]$lat, longitude = nested_df2[[2]][[13]]$long)))
+#convert to spdf
+SPDF13 <- SpatialPointsDataFrame(c(coords13[,c('longitude','latitude')]), data = coords13)
+#projection as North america
+#proj4string(SPDF1) <- CRS("+init=epsg:4326")
+# NAD83<-"+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs"
+# proj4string(SPDF3) <- CRS(NAD83)
+# SPDF3<-spTransform(SPDF3,NAD83)
+# #check bbox
+# sf::st_bbox(SPDF3)
+# #plot(SPDF1)
+proj4string(SPDF13) <-  CRS("+init=epsg:4326")
+#SPDF1<-spTransform(SPDF1,NAD83)
+#check bbox
+#sf::st_bbox(SPDF1)
+#plot(SPDF1)
+
+target_crs = CRS("+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")  # This is your string assigned to an object
+
+SPDF13= spTransform(SPDF13, target_crs) ## object used to transform your data frame
+
+sf::st_bbox(SPDF13)
+```
+
+
+```{r extract land cover using coords}
+#extract landcover from points on spdf, will automatically reporject spdf to match raster
+
+
+extractLC13<-data.frame(raster::extract(NLCD10_rat,SPDF13))
+#rename column as code
+colnames(extractLC13)[1]<-"code"
+#convert to character so can join
+extractLC13$code%<>%as.character()
+#add legend description for each code
+extractLC13<-left_join(extractLC13,legend)
+#need to add back to original DF
+nested_df2[[2]][[13]]<-  cbind(nested_df2[[2]][[13]],extractLC13)
+```
+
+```{r}
+#get distance to water
+#get county fips codes for NC
+data(fips_codes)
+#extarct fips codes for State of choice, water features are stored by county
+fipsWV<-dplyr::filter(fips_codes, state_code=="54")
+#list all fips codes for all NC counties
+WV_county<-fipsWV$county_code
+#beginCluster()
+#get hydrological features for all NC counties
+WVwater<-area_water("WV",WV_county)
+#plot(ARwater$geometry)
+#extract geometry of water features
+WVwatergeo<-WVwater$geometry
+#convert to SF then SP
+WVwater_SF<-st_sf(WVwatergeo)
+WVwater_SP<-as(Class = "Spatial",WVwater_SF)
+# #distance to water in degrees
+# dist_2_water<-data.frame(apply(gDistance(d3, NCwater_SP,byid=TRUE),2,min))
+# #projections
+# wgs<-"+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
+# wgs84<-CRS(wgs)
+# #projection for NC in survey ft
+# epsg2264 <- CRS("+init=epsg:2264")
+#use 9311 for whole US, in metres
+epsg9311 <- CRS("+init=epsg:9311")
+
+#proj4string(SPDF4) <- CRS("+init=epsg:4326")
+#trnasform projections so both the same 
+SPDF13_water_proj <- spTransform(SPDF13,epsg9311)
+WVwater_proj   <- spTransform(WVwater_SP, epsg9311)
+#distance in metres
+WV_water_m<-data.frame(apply(gDistance(SPDF13_water_proj, WVwater_proj,byid=TRUE),2,min))
+# 
+# #NC projection
+# CDV.proj2 <- spTransform(d3,epsg2264)
+# water.proj2   <- spTransform(NCwater_SP, epsg2264)
+# #in feet
+# d2w_feet<-data.frame(apply(gDistance(CDV.proj2, water.proj2,byid=TRUE),2,min))
+# 
+
+nested_df2[[2]][[13]]<-cbind(nested_df2[[2]][[13]], WV_water_m)
+
+```
+
+```{r}
+#numbers for impervious surface are a percentage, with 100 being totally impervious
+#plot(NLCDfiles[[15]])
+#imp4<-list2stack("^pNLCD_2019_Imp_KS.tiff$")
+#plot(imp1)
+#imp4_rat<-ratify(imp4[[1]])
+WVimp_df<-data.frame(raster::extract(imp10_rat, SPDF13))
+nested_df2[[2]][[13]]<-cbind(nested_df2[[2]][[13]],WVimp_df)
+```
+
+```{r}
+#rename columns so all the same and unnest into one df
+
+colnames(nested_df2[[2]][[1]])[25]<-"Distance_to_water"
+colnames(nested_df2[[2]][[1]])[26]<-"Imperviousness"
+
+colnames(nested_df2[[2]][[2]])[25]<-"Distance_to_water"
+colnames(nested_df2[[2]][[2]])[26]<-"Imperviousness"
+
+colnames(nested_df2[[2]][[3]])[25]<-"Distance_to_water"
+colnames(nested_df2[[2]][[3]])[26]<-"Imperviousness"
+
+colnames(nested_df2[[2]][[4]])[25]<-"Distance_to_water"
+colnames(nested_df2[[2]][[4]])[26]<-"Imperviousness"
+
+colnames(nested_df2[[2]][[5]])[25]<-"Distance_to_water"
+colnames(nested_df2[[2]][[5]])[26]<-"Imperviousness"
+
+colnames(nested_df2[[2]][[6]])[25]<-"Distance_to_water"
+colnames(nested_df2[[2]][[6]])[26]<-"Imperviousness"
+
+colnames(nested_df2[[2]][[7]])[25]<-"Distance_to_water"
+colnames(nested_df2[[2]][[7]])[26]<-"Imperviousness"
+
+colnames(nested_df2[[2]][[8]])[25]<-"Distance_to_water"
+colnames(nested_df2[[2]][[8]])[26]<-"Imperviousness"
+
+colnames(nested_df2[[2]][[9]])[25]<-"Distance_to_water"
+colnames(nested_df2[[2]][[9]])[26]<-"Imperviousness"
+
+colnames(nested_df2[[2]][[10]])[25]<-"Distance_to_water"
+colnames(nested_df2[[2]][[10]])[26]<-"Imperviousness"
+
+colnames(nested_df2[[2]][[11]])[25]<-"Distance_to_water"
+colnames(nested_df2[[2]][[11]])[26]<-"Imperviousness"
+
+colnames(nested_df2[[2]][[12]])[25]<-"Distance_to_water"
+colnames(nested_df2[[2]][[12]])[26]<-"Imperviousness"
+
+colnames(nested_df2[[2]][[13]])[25]<-"Distance_to_water"
+colnames(nested_df2[[2]][[13]])[26]<-"Imperviousness"
+
+
+
+Complete_data_CDV_vars<-unnest(nested_df2)
+
+colnames(Complete_data_CDV_vars)[19]<-"Elevation"
+colnames(Complete_data_CDV_vars)[20]<-"Precipitation"
+colnames(Complete_data_CDV_vars)[21]<-"Temperature"
+
+
+
+write.csv(Complete_data_CDV_vars, "Complete_data_CDV_vars.csv")
+
+```
+
+```{r}
+
+ggplot(Complete_data_CDV_vars, aes(x = class, fill = Distemper)) +
+    geom_bar(position = "fill") +
+    theme_classic()
+
+
+ggplot(Complete_data_CDV_vars, aes(x = description, fill = Distemper)) +
+    geom_bar(position = "fill") +
+    theme_classic()
+
+
+```
